@@ -8,12 +8,16 @@ from app.schemas.review import (
     ReviewLikeResponse
 )
 from app.crud.review import CRUDReview
+from app.crud.loyalty import CRUDLoyalty
 from app.core.supabase import supabase
 from app.core.security import get_current_user, CurrentUser
 from app.core.exceptions import NotFoundException, AppException
+import logging
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 crud_review = CRUDReview(supabase)
+crud_loyalty = CRUDLoyalty(supabase)
+logger = logging.getLogger(__name__)
 
 
 # -------- GET REVIEWS (WITH TOTAL COUNT) --------
@@ -39,8 +43,24 @@ async def create_review(
         review_data = review_in.model_dump()
         review_data["user_id"] = current_user.user_id
         review_data["username"] = current_user.user_name or current_user.email.split("@")[0]
+        created = await crud_review.create(review_data)
 
-        return await crud_review.create(review_data)
+        try:
+            loyalty_result = await crud_loyalty.award_review_points(
+                current_user.user_id,
+                review_in.movie_id
+            )
+            if not loyalty_result.get('success'):
+                logger.info(
+                    "Review points not awarded for user %s movie %s: %s",
+                    current_user.user_id,
+                    review_in.movie_id,
+                    loyalty_result.get('error')
+                )
+        except Exception as loyalty_err:
+            logger.error(f"Error awarding review points: {loyalty_err}")
+
+        return created
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

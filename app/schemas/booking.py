@@ -44,7 +44,8 @@ class ReserveSeatRequest(BaseModel):
     user_id: UUID = Field(..., description="User UUID from Supabase auth")
     screen_id: int = Field(..., description="Screen ID")
     seat_ids: List[int] = Field(..., min_length=1, max_length=10, description="List of seat IDs to reserve")
-    price_per_seat: float = Field(default=15.00, gt=0, description="Price per seat in USD")
+    price_per_seat: float = Field(default=15.00, gt=0, description="Price per seat in THB")
+    loyalty_points_to_use: int = Field(default=0, ge=0, description="Loyalty points to redeem")
 
     class Config:
         json_schema_extra = {
@@ -52,7 +53,8 @@ class ReserveSeatRequest(BaseModel):
                 "user_id": "123e4567-e89b-12d3-a456-426614174000",
                 "screen_id": 1,
                 "seat_ids": [1, 2, 3],
-                "price_per_seat": 15.00
+                "price_per_seat": 15.00,
+                "loyalty_points_to_use": 100
             }
         }
 
@@ -63,6 +65,8 @@ class ReserveSeatResponse(BaseModel):
     booking_id: Optional[int] = None
     payment_deadline: Optional[datetime] = None
     total_amount: Optional[float] = None
+    loyalty_points_used: Optional[int] = None
+    discount_amount: Optional[float] = None
     error: Optional[str] = None
     unavailable_seats: Optional[List[int]] = None
 

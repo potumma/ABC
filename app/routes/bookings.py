@@ -20,6 +20,7 @@ from app.schemas.booking import (
     ExpiryWorkerResponse
 )
 from app.crud.booking import CRUDBooking
+from app.crud.loyalty import CRUDLoyalty
 from app.core.supabase import supabase
 from app.core.security import get_current_user, CurrentUser
 import logging
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/bookings", tags=["bookings"])
 crud_booking = CRUDBooking(supabase)
+crud_loyalty = CRUDLoyalty(supabase)
 
 
 # ========== Seat Selection Endpoints ==========
@@ -121,11 +123,43 @@ async def reserve_seats(request: ReserveSeatRequest):
                 unavailable_seats=result.get('unavailable_seats')
             )
 
+        total_amount = request.price_per_seat * len(request.seat_ids)
+        loyalty_points_used = None
+        discount_amount = None
+
+        if request.loyalty_points_to_use > 0:
+            redeem_result = await crud_loyalty.redeem_booking_points(
+                result['booking_id'],
+                request.loyalty_points_to_use
+            )
+
+            if not redeem_result.get('success'):
+                logger.warning(
+                    "Loyalty redemption failed for booking %s: %s",
+                    result['booking_id'],
+                    redeem_result.get('error')
+                )
+                try:
+                    await crud_booking.cancel_booking(result['booking_id'])
+                except Exception as cancel_err:
+                    logger.error(f"Failed to cancel booking after redemption error: {cancel_err}")
+
+                return ReserveSeatResponse(
+                    success=False,
+                    error=redeem_result.get('error', 'Failed to redeem loyalty points')
+                )
+
+            loyalty_points_used = redeem_result.get('points_used')
+            discount_amount = redeem_result.get('discount_amount')
+            total_amount = redeem_result.get('new_total_amount', total_amount)
+
         return ReserveSeatResponse(
             success=True,
             booking_id=result['booking_id'],
             payment_deadline=result['payment_deadline'],
-            total_amount=request.price_per_seat * len(request.seat_ids)
+            total_amount=total_amount,
+            loyalty_points_used=loyalty_points_used,
+            discount_amount=discount_amount
         )
 
     except Exception as e:
@@ -187,6 +221,17 @@ async def confirm_payment(request: ConfirmPaymentRequest):
         # Get tickets
         tickets = await crud_booking.get_tickets_for_booking(request.booking_id)
 
+        try:
+            loyalty_result = await crud_loyalty.award_booking_points(request.booking_id)
+            if not loyalty_result.get('success'):
+                logger.warning(
+                    "Failed to award booking points for %s: %s",
+                    request.booking_id,
+                    loyalty_result.get('error')
+                )
+        except Exception as loyalty_err:
+            logger.error(f"Error awarding booking points: {loyalty_err}")
+
         return ConfirmPaymentResponse(
             success=True,
             message="Payment confirmed successfully",
@@ -219,6 +264,17 @@ async def cancel_booking(request: CancelBookingRequest):
                 success=False,
                 message=result.get('error', 'Failed to cancel booking')
             )
+
+        try:
+            refund_result = await crud_loyalty.refund_booking_points(request.booking_id)
+            if not refund_result.get('success'):
+                logger.warning(
+                    "Failed to refund booking points for %s: %s",
+                    request.booking_id,
+                    refund_result.get('error')
+                )
+        except Exception as loyalty_err:
+            logger.error(f"Error refunding booking points: {loyalty_err}")
 
         return CancelBookingResponse(
             success=True,
