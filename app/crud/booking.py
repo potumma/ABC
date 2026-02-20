@@ -167,29 +167,12 @@ class CRUDBooking:
                 if isinstance(data, bytes):
                     data = json.loads(data.decode('utf-8'))
 
-                # Optionally store payment_intent_id
-                if payment_intent_id:
-                    await asyncio.to_thread(
-                        lambda: self.client.table('bookings')
-                            .update({'payment_intent_id': payment_intent_id})
-                            .eq('id', booking_id)
-                            .execute()
-                    )
-
                 return data
             raise ValueError("No data returned from confirm_payment")
         except Exception as e:
             # Try to extract JSON from error details
             data = self._extract_json_from_error(e)
             if data:
-                # Optionally store payment_intent_id
-                if payment_intent_id:
-                    await asyncio.to_thread(
-                        lambda: self.client.table('bookings')
-                            .update({'payment_intent_id': payment_intent_id})
-                            .eq('id', booking_id)
-                            .execute()
-                    )
                 return data
 
             logger.error(f"Error confirming payment: {e}")
